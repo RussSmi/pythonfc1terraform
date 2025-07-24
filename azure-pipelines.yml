@@ -1,10 +1,7 @@
 # Azure DevOps Pipeline for Python Function App with Terraform
 # This pipeline deploys infrastructure via Terraform and then deploys the Python function code
 name: deploy-function-app
-parameters:
-- name: azureServiceConnection
-  type: string
-  default: 'azureServiceConnection'
+
 trigger:
   branches:
     include:
@@ -54,7 +51,7 @@ stages:
     - task: AzureCLI@2
       displayName: 'Azure CLI Login and Terraform Init'
       inputs:
-        azureSubscription: $(azureServiceConnection)
+        azureSubscription: 'azureServiceConnection'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
@@ -71,7 +68,7 @@ stages:
     - task: AzureCLI@2
       displayName: 'Terraform Plan'
       inputs:
-        azureSubscription: $(azureServiceConnection)
+        azureSubscription: 'azureServiceConnection'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
@@ -116,7 +113,7 @@ stages:
           - task: AzureCLI@2
             displayName: 'Terraform Apply'
             inputs:
-              azureSubscription: $(azureServiceConnection)
+              azureSubscription: 'azureServiceConnection'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
               inlineScript: |
@@ -212,7 +209,7 @@ stages:
           - task: AzureFunctionApp@2
             displayName: 'Deploy Azure Function App'
             inputs:
-              azureSubscription: $(azureServiceConnection)
+              azureSubscription: 'azureServiceConnection'
               appType: 'functionApp'
               appName: $(functionAppName)
               package: '$(Pipeline.Workspace)/function-package'
@@ -236,7 +233,7 @@ stages:
     - task: AzureCLI@2
       displayName: 'Test Function Endpoint'
       inputs:
-        azureSubscription: $(azureServiceConnection)
+        azureSubscription: 'azureServiceConnection'
         scriptType: 'bash'
         scriptLocation: 'inlineScript'
         inlineScript: |
