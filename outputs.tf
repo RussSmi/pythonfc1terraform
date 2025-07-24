@@ -2,10 +2,6 @@ output "resource_group_name" {
   value = azurerm_resource_group.example.name
 }
 
-output "function_app_name" {
-  value = azurerm_function_app_flex_consumption.example.name
-}
-
 output "sa_name" {
   value = azurerm_storage_account.example.name
 }

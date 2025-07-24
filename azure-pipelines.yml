@@ -1,11 +1,14 @@
 # Azure DevOps Pipeline for Python Function App with Terraform
 # This pipeline deploys infrastructure via Terraform and then deploys the Python function code
-
+name: deploy-function-app
+parameters:
+- name: azureServiceConnection
+  type: string
+  default: '$(connection)'
 trigger:
   branches:
     include:
     - main
-    - develop
   paths:
     include:
     - '**'
@@ -16,8 +19,8 @@ variables:
   terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)'
   
   # Azure Configuration
-  azureServiceConnection: 'your-service-connection-name' # Replace with your service connection name
-  subscriptionId: 'your-subscription-id' # Replace with your subscription ID
+  
+  subscriptionId: '8af392db-423c-49d9-8c34-cdafbe702315' # Replace with your subscription ID
   
   # Function App Configuration
   pythonVersion: '3.12'
@@ -57,7 +60,7 @@ stages:
         scriptLocation: 'inlineScript'
         inlineScript: |
           # Initialize Terraform
-          terraform init
+          terraform init -backend-config=backend-nonprod.hcl
           
           # Validate Terraform configuration
           terraform validate
@@ -119,7 +122,7 @@ stages:
               scriptLocation: 'inlineScript'
               inlineScript: |
                 # Initialize Terraform
-                terraform init
+                terraform init -backend-config=backend-nonprod.hcl
                 
                 # Apply the plan
                 terraform apply -auto-approve tfplan
