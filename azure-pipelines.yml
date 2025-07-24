@@ -1,0 +1,257 @@
+# Azure DevOps Pipeline for Python Function App with Terraform
+# This pipeline deploys infrastructure via Terraform and then deploys the Python function code
+
+trigger:
+  branches:
+    include:
+    - main
+    - develop
+  paths:
+    include:
+    - '**'
+
+variables:
+  # Terraform Configuration
+  terraformVersion: '1.5.7'
+  terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)'
+  
+  # Azure Configuration
+  azureServiceConnection: 'your-service-connection-name' # Replace with your service connection name
+  subscriptionId: 'your-subscription-id' # Replace with your subscription ID
+  
+  # Function App Configuration
+  pythonVersion: '3.12'
+  functionAppName: 'python-fn-demo' # This should match your fa_name in rgs.tfvars
+  
+  # Environment specific variables
+  ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+    environment: 'production'
+    resourceGroupName: 'rg-python-fn-uks'
+  ${{ else }}:
+    environment: 'development'
+    resourceGroupName: 'rg-python-fn-uks-dev'
+
+stages:
+- stage: ValidateAndPlan
+  displayName: 'Validate and Plan Infrastructure'
+  jobs:
+  - job: TerraformValidate
+    displayName: 'Terraform Validate and Plan'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - checkout: self
+      displayName: 'Checkout Repository'
+    
+    - task: TerraformInstaller@1
+      displayName: 'Install Terraform'
+      inputs:
+        terraformVersion: $(terraformVersion)
+    
+    - task: AzureCLI@2
+      displayName: 'Azure CLI Login and Terraform Init'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Initialize Terraform
+          terraform init
+          
+          # Validate Terraform configuration
+          terraform validate
+          
+          # Format check
+          terraform fmt -check
+        workingDirectory: $(terraformWorkingDirectory)
+    
+    - task: AzureCLI@2
+      displayName: 'Terraform Plan'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Create Terraform plan
+          terraform plan -var-file="rgs.tfvars" -out=tfplan
+        workingDirectory: $(terraformWorkingDirectory)
+    
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Terraform Plan'
+      inputs:
+        targetPath: '$(terraformWorkingDirectory)/tfplan'
+        artifact: 'terraform-plan'
+
+- stage: DeployInfrastructure
+  displayName: 'Deploy Infrastructure'
+  dependsOn: ValidateAndPlan
+  condition: succeeded()
+  jobs:
+  - deployment: DeployTerraform
+    displayName: 'Deploy Terraform Infrastructure'
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: $(environment)
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+            displayName: 'Checkout Repository'
+          
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Terraform Plan'
+            inputs:
+              artifactName: 'terraform-plan'
+              downloadPath: '$(terraformWorkingDirectory)'
+          
+          - task: TerraformInstaller@1
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: $(terraformVersion)
+          
+          - task: AzureCLI@2
+            displayName: 'Terraform Apply'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                # Initialize Terraform
+                terraform init
+                
+                # Apply the plan
+                terraform apply -auto-approve tfplan
+                
+                # Output important values
+                echo "##vso[task.setvariable variable=functionAppName;isOutput=true]$(terraform output -raw function_app_name)"
+                echo "##vso[task.setvariable variable=resourceGroupName;isOutput=true]$(terraform output -raw resource_group_name)"
+              workingDirectory: $(terraformWorkingDirectory)
+            name: 'terraformApply'
+
+- stage: BuildAndDeployFunction
+  displayName: 'Build and Deploy Function App'
+  dependsOn: DeployInfrastructure
+  condition: succeeded()
+  variables:
+    functionAppName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.functionAppName'] ]
+    resourceGroupName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.resourceGroupName'] ]
+  
+  jobs:
+  - job: BuildFunction
+    displayName: 'Build Python Function'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - checkout: self
+      displayName: 'Checkout Repository'
+    
+    - task: UsePythonVersion@0
+      displayName: 'Use Python $(pythonVersion)'
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+        architecture: 'x64'
+    
+    - script: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+      displayName: 'Install Python Dependencies'
+    
+    - script: |
+        # Create deployment package excluding unnecessary files
+        mkdir -p $(Build.ArtifactStagingDirectory)/function-package
+        
+        # Copy function files
+        cp function_app.py $(Build.ArtifactStagingDirectory)/function-package/
+        cp host.json $(Build.ArtifactStagingDirectory)/function-package/
+        cp requirements.txt $(Build.ArtifactStagingDirectory)/function-package/
+        
+        # Copy any additional function files (if they exist)
+        if [ -f "local.settings.json" ]; then
+          cp local.settings.json $(Build.ArtifactStagingDirectory)/function-package/
+        fi
+        
+        # Install production dependencies into the package
+        pip install --target $(Build.ArtifactStagingDirectory)/function-package -r requirements.txt
+        
+        # Remove unnecessary files from the package
+        find $(Build.ArtifactStagingDirectory)/function-package -name "*.pyc" -delete
+        find $(Build.ArtifactStagingDirectory)/function-package -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+        
+        echo "Function package created successfully"
+        ls -la $(Build.ArtifactStagingDirectory)/function-package/
+      displayName: 'Create Deployment Package'
+    
+    - task: PublishPipelineArtifact@1
+      displayName: 'Publish Function Package'
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)/function-package'
+        artifact: 'function-package'
+
+  - deployment: DeployFunction
+    displayName: 'Deploy Function to Azure'
+    dependsOn: BuildFunction
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: $(environment)
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Function Package'
+            inputs:
+              artifactName: 'function-package'
+              downloadPath: '$(Pipeline.Workspace)/function-package'
+          
+          - task: AzureFunctionApp@2
+            displayName: 'Deploy Azure Function App'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              appType: 'functionApp'
+              appName: $(functionAppName)
+              package: '$(Pipeline.Workspace)/function-package'
+              deploymentMethod: 'zipDeploy'
+              runtimeStack: 'PYTHON|$(pythonVersion)'
+
+- stage: PostDeploymentValidation
+  displayName: 'Post-Deployment Validation'
+  dependsOn: BuildAndDeployFunction
+  condition: succeeded()
+  variables:
+    functionAppName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.functionAppName'] ]
+  
+  jobs:
+  - job: ValidateDeployment
+    displayName: 'Validate Function Deployment'
+    pool:
+      vmImage: 'ubuntu-latest'
+    
+    steps:
+    - task: AzureCLI@2
+      displayName: 'Test Function Endpoint'
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Get function app URL
+          FUNCTION_URL=$(az functionapp show --name $(functionAppName) --resource-group $(resourceGroupName) --query "defaultHostName" -o tsv)
+          
+          # Test the function endpoint
+          echo "Testing function at: https://$FUNCTION_URL/api/httpexample"
+          
+          # Simple health check (might need function key for full test)
+          response=$(curl -s -o /dev/null -w "%{http_code}" "https://$FUNCTION_URL/api/httpexample?name=Pipeline")
+          
+          if [ $response -eq 200 ] || [ $response -eq 401 ]; then
+            echo "Function is responding (HTTP $response)"
+            echo "##vso[task.complete result=Succeeded;]Function deployment validated successfully"
+          else
+            echo "Function is not responding correctly (HTTP $response)"
+            echo "##vso[task.complete result=Failed;]Function deployment validation failed"
+            exit 1
+          fi

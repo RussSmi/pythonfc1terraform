@@ -1,0 +1,68 @@
+# Azure Functions Testing Template
+# Copy this file to tests.http and replace placeholders with actual values
+# Use this file with the REST Client extension in VS Code
+
+### LOCAL TESTING (when running func host start)
+### Test HTTP GET request with query parameter (Local)
+GET http://localhost:7071/api/httpexample?name=World
+
+### Test HTTP GET request without parameters (Local)
+GET http://localhost:7071/api/httpexample
+
+### Test HTTP POST request with JSON body (Local)
+POST http://localhost:7071/api/httpexample
+Content-Type: application/json
+
+{
+    "name": "John Doe"
+}
+
+### Test with function key (Local - if required)
+# Replace {function_key} with actual key from terminal output
+GET http://localhost:7071/api/httpexample?code={function_key}&name=SecureWorld
+
+### Test POST with function key (Local)
+POST http://localhost:7071/api/httpexample?code={function_key}
+Content-Type: application/json
+
+{
+    "name": "Secure User"
+}
+
+### Health check endpoint (Local)
+GET http://localhost:7071/admin/host/status
+
+### AZURE DEPLOYED TESTING (with authentication)
+### IMPORTANT: Replace {your-function-app-name} and {your-function-key} with actual values
+### Get key with: az functionapp keys list --name {your-function-app-name} --resource-group {your-resource-group}
+
+### Test deployed Azure function with query parameter (with auth)
+GET https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}&name=Azure
+
+### Test deployed Azure function without parameters (with auth)
+GET https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}
+
+### Test deployed Azure function with POST request (with auth)
+POST https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}
+Content-Type: application/json
+
+{
+    "name": "Azure Deploy Test"
+}
+
+### Test deployed function with different names
+GET https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}&name=Python312
+
+### Test deployed function with POST and different data
+POST https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}
+Content-Type: application/json
+
+{
+    "name": "Production User"
+}
+
+### Test deployed function edge case - empty name
+GET https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}&name=
+
+### Test deployed function with special characters
+GET https://{your-function-app-name}.azurewebsites.net/api/httpexample?code={your-function-key}&name=Test%20User%20123
