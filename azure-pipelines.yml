@@ -4,7 +4,7 @@ name: deploy-function-app
 parameters:
 - name: azureServiceConnection
   type: string
-  default: '$(connection)'
+  default: 'azureServiceConnection'
 trigger:
   branches:
     include:
@@ -19,8 +19,7 @@ variables:
   terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)'
   
   # Azure Configuration
-  
-  subscriptionId: '8af392db-423c-49d9-8c34-cdafbe702315' # Replace with your subscription ID
+
   
   # Function App Configuration
   pythonVersion: '3.12'
