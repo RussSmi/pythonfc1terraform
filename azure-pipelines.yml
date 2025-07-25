@@ -50,7 +50,7 @@ stages:
     
     - task: TerraformTask@5
       inputs:
-        provider: 'azurerm'
+        backendType: 'azurerm'
         command: 'init'
         commandOptions: '-backend-config=backend-nonprod.hcl'
         backendServiceArm: 'azureServiceConnection'
@@ -64,7 +64,7 @@ stages:
 
     - task: TerraformTask@5
       inputs:
-        provider: 'azurerm'
+        backendType: 'azurerm'
         command: 'plan'
         commandOptions: '-var-file="rgs.tfvars" -out=tfplan'
         environmentServiceNameAzureRM: 'azureServiceConnection'
@@ -107,7 +107,7 @@ stages:
           - task: TerraformTask@5
             displayName: 'Terraform Init'
             inputs:
-              provider: 'azurerm'
+              backendType: 'azurerm'
               command: 'init'
               commandOptions: '-backend-config=backend-nonprod.hcl'
               backendServiceArm: 'azureServiceConnection'
@@ -119,7 +119,7 @@ stages:
           - task: TerraformTask@5
             displayName: 'Terraform Apply'
             inputs:
-              provider: 'azurerm'
+              backendType: 'azurerm'
               command: 'apply'
               commandOptions: '-auto-approve tfplan'
               environmentServiceNameAzureRM: 'azureServiceConnection'
