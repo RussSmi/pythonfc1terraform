@@ -48,32 +48,23 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
     
-    - task: AzureCLI@2
-      displayName: 'Azure CLI Login and Terraform Init'
+    - task: TerraformTask@5
       inputs:
-        azureSubscription: 'azureServiceConnection'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          # Initialize Terraform
-          terraform init -backend-config=backend-nonprod.hcl
-          
-          # Validate Terraform configuration
-          terraform validate
-          
-          # Format check
-          terraform fmt -check
+        provider: 'azurerm'
+        command: 'init'
+        commandOptions: '-backend-config=backend-nonprod.hcl'
+        backendServiceArm: 'azureServiceConnection'
+        backendAzureRmStorageAccountName: 'tfstateelpy7eogzws7x'
+        backendAzureRmContainerName: 'pythonfc1terraform'
+        backendAzureRmKey: 'terraform-non-prod.tfstate'
         workingDirectory: $(terraformWorkingDirectory)
-    
-    - task: AzureCLI@2
-      displayName: 'Terraform Plan'
+
+    - task: TerraformTask@5
       inputs:
-        azureSubscription: 'azureServiceConnection'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          # Create Terraform plan
-          terraform plan -var-file="rgs.tfvars" -out=tfplan
+        provider: 'azurerm'
+        command: 'plan'
+        commandOptions: '-var-file="rgs.tfvars" -out=tfplan'
+        environmentServiceNameAzureRM: 'azureServiceConnection'
         workingDirectory: $(terraformWorkingDirectory)
     
     - task: PublishPipelineArtifact@1
@@ -109,20 +100,35 @@ stages:
             displayName: 'Install Terraform'
             inputs:
               terraformVersion: $(terraformVersion)
-          
-          - task: AzureCLI@2
+
+          - task: TerraformTask@5
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              commandOptions: '-backend-config=backend-nonprod.hcl'
+              backendServiceArm: 'azureServiceConnection'
+              backendAzureRmStorageAccountName: 'tfstateelpy7eogzws7x'
+              backendAzureRmContainerName: 'pythonfc1terraform'
+              backendAzureRmKey: 'terraform-non-prod.tfstate'
+              workingDirectory: $(terraformWorkingDirectory)
+
+          - task: TerraformTask@5
             displayName: 'Terraform Apply'
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              commandOptions: '-auto-approve tfplan'
+              environmentServiceNameAzureRM: 'azureServiceConnection'
+              workingDirectory: $(terraformWorkingDirectory)
+
+          - task: AzureCLI@2
+            displayName: 'Terraform Outputs'
             inputs:
               azureSubscription: 'azureServiceConnection'
               scriptType: 'bash'
               scriptLocation: 'inlineScript'
-              inlineScript: |
-                # Initialize Terraform
-                terraform init -backend-config=backend-nonprod.hcl
-                
-                # Apply the plan
-                terraform apply -auto-approve tfplan
-                
+              inlineScript: |                           
                 # Output important values
                 echo "##vso[task.setvariable variable=functionAppName;isOutput=true]$(terraform output -raw function_app_name)"
                 echo "##vso[task.setvariable variable=resourceGroupName;isOutput=true]$(terraform output -raw resource_group_name)"
