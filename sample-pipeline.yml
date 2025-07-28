@@ -1,0 +1,47 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  terraformVersion: 'Latest'
+  workingDirectory: '$(System.DefaultWorkingDirectory)'
+
+steps:
+- task: TerraformInstaller@1
+  displayName: 'Install Terraform'
+  inputs:
+    terraformVersion: '$(terraformVersion)'
+
+- task: TerraformTaskV4@4
+  displayName: 'Terraform Init'
+  inputs:
+    provider: 'azurerm'
+    command: 'init'
+    workingDirectory: '$(workingDirectory)'
+    backendServiceArm: 'rusmith-sandbox'
+    backendAzureRmResourceGroupName: 'rg-tfstate-uks'
+    backendAzureRmStorageAccountName: 'tfstateelpy7eogzws7x'
+    backendAzureRmContainerName: 'pythonfc1terraform'
+    backendAzureRmKey: 'sample.terraform.tfstate'
+
+- task: TerraformTaskV4@4
+  displayName: 'Terraform Plan'
+  inputs:
+    provider: 'azurerm'
+    command: 'plan'
+    workingDirectory: '$(workingDirectory)'
+    environmentServiceNameAzureRM: 'rusmith-sandbox'
+    args: '-out=tf.plan -var-file=rgs.tfvars'
+
+- task: TerraformTaskV4@4
+  displayName: 'Terraform Apply'
+  inputs:
+    provider: 'azurerm'
+    command: 'apply'
+    workingDirectory: '$(workingDirectory)'
+    environmentServiceNameAzureRM: 'rusmith-sandbox'
+    args: 'tf.plan -auto-approve'
