@@ -1,3 +1,5 @@
+name: sample-pipeline
+
 trigger:
   branches:
     include:
