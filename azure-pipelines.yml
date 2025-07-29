@@ -14,10 +14,7 @@ variables:
   # Terraform Configuration
   terraformVersion: 'Latest'
   terraformWorkingDirectory: '$(System.DefaultWorkingDirectory)'
-  servicePrincipalId: 'b734161d-9578-4ba9-ab89-0f25cfec0c0f'
-  tenantId: '42d0137d-f038-41b4-97c2-8264b29c2970'
-  subscription_id: 8af392db-423c-49d9-8c34-cdafbe702315
-  servicePrincipalKey: ''
+  
   # Azure Configuration
 
   
@@ -51,39 +48,33 @@ stages:
       inputs:
         terraformVersion: $(terraformVersion)
     
-    - task: AzureCLI@2
-      displayName: "Terraform"
+    - task: TerraformTaskV4@4
+      displayName: 'Terraform Init and Validate'
       inputs:
-        azureSubscription:  <replace_with_service_account_with_management_group_permission>
-        scriptType: bash
-        addSpnToEnvironment: true
-        scriptLocation: inlineScript
-        inlineScript: |
-          export ARM_CLIENT_ID=$servicePrincipalId
-          export ARM_CLIENT_SECRET=$servicePrincipalKey
-          export ARM_TENANT_ID=$tenantId
-          # it need be set via Environment variable, or get from parameters
-          export ARM_SUBSCRIPTION_ID="$(subscription_id)"
-          # Initialize Terraform
-          terraform init -backend-config=backend-nonprod.hcl
-          
-          # Validate Terraform configuration
-          terraform validate
-          
-          # Format check
-          terraform fmt -check
-        workingDirectory: $(terraformWorkingDirectory)
-    
-    - task: AzureCLI@2
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        backendServiceArm: 'azureServiceConnection'
+        backendAzureRmResourceGroupName: 'rg-tfstate-uks'
+        backendAzureRmStorageAccountName: 'tfstateelpy7eogzws7x'
+        backendAzureRmContainerName: 'pythonfc1terraform'
+        backendAzureRmKey: 'terraform-non-prod.tfstate'
+
+    - task: TerraformTaskV4@4
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+        workingDirectory: '$(terraformWorkingDirectory)'
+
+    - task: TerraformTaskV4@4
       displayName: 'Terraform Plan'
       inputs:
-        azureSubscription: 'azureServiceConnection'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          # Create Terraform plan
-          terraform plan -var-file="rgs.tfvars" -out=tfplan
-        workingDirectory: $(terraformWorkingDirectory)
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: '$(terraformWorkingDirectory)'
+        environmentServiceNameAzureRM: 'azureServiceConnection'
+        commandOptions: '-var-file=rgs.tfvars -out=tfplan'
     
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Terraform Plan'
@@ -119,32 +110,32 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: AzureCLI@2
+          - task: TerraformTaskV4@4
+            displayName: 'Terraform Init'
+            inputs:
+              provider: 'azurerm'
+              command: 'init'
+              workingDirectory: '$(terraformWorkingDirectory)'
+              backendServiceArm: 'azureServiceConnection'
+              backendAzureRmResourceGroupName: 'rg-tfstate-uks'
+              backendAzureRmStorageAccountName: 'tfstateelpy7eogzws7x'
+              backendAzureRmContainerName: 'pythonfc1terraform'
+              backendAzureRmKey: 'terraform-non-prod.tfstate'
+          
+          - task: TerraformTaskV4@4
             displayName: 'Terraform Apply'
             inputs:
-              azureSubscription: 'azureServiceConnection'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                # Initialize Terraform
-                terraform init -backend-config=backend-nonprod.hcl
-                
-                # Apply the plan
-                terraform apply -auto-approve tfplan
-                
-                # Output important values
-                echo "##vso[task.setvariable variable=functionAppName;isOutput=true]$(terraform output -raw function_app_name)"
-                echo "##vso[task.setvariable variable=resourceGroupName;isOutput=true]$(terraform output -raw resource_group_name)"
-              workingDirectory: $(terraformWorkingDirectory)
+              provider: 'azurerm'
+              command: 'apply'
+              workingDirectory: '$(terraformWorkingDirectory)'
+              environmentServiceNameAzureRM: 'azureServiceConnection'
+              commandOptions: 'tfplan'
             name: 'terraformApply'
 
 - stage: BuildAndDeployFunction
   displayName: 'Build and Deploy Function App'
   dependsOn: DeployInfrastructure
   condition: succeeded()
-  variables:
-    functionAppName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.functionAppName'] ]
-    resourceGroupName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.resourceGroupName'] ]
   
   jobs:
   - job: BuildFunction
@@ -215,22 +206,49 @@ stages:
               artifactName: 'function-package'
               downloadPath: '$(Pipeline.Workspace)/function-package'
           
-          - task: AzureFunctionApp@2
-            displayName: 'Deploy Azure Function App'
+          - task: AzureCLI@2
+            displayName: 'Verify Function App and Deploy'
             inputs:
               azureSubscription: 'azureServiceConnection'
-              appType: 'functionApp'
-              appName: $(functionAppName)
-              package: '$(Pipeline.Workspace)/function-package'
-              deploymentMethod: 'zipDeploy'
-              runtimeStack: 'PYTHON|$(pythonVersion)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "Verifying Function App exists..."
+                
+                # Check if function app exists
+                if az functionapp show --name $(functionAppName) --resource-group $(resourceGroupName) > /dev/null 2>&1; then
+                  echo "✅ Function App '$(functionAppName)' found in resource group '$(resourceGroupName)'"
+                  
+                  # Get function app details
+                  az functionapp show --name $(functionAppName) --resource-group $(resourceGroupName) --query "{name:name, state:state, kind:kind, sku:appServicePlanId}" -o table
+                  
+                  # Wait a bit for the function app to be fully ready
+                  echo "Waiting 30 seconds for Function App to be fully ready..."
+                  sleep 30
+                  
+                  # Create zip file for deployment
+                  cd $(Pipeline.Workspace)/function-package
+                  zip -r ../function-app.zip .
+                  
+                  echo "Deploying function app using Azure CLI..."
+                  az functionapp deployment source config-zip \
+                    --resource-group $(resourceGroupName) \
+                    --name $(functionAppName) \
+                    --src $(Pipeline.Workspace)/function-app.zip \
+                    --verbose
+                  
+                  echo "✅ Function app deployed successfully"
+                else
+                  echo "❌ Function App '$(functionAppName)' not found in resource group '$(resourceGroupName)'"
+                  echo "Available function apps in resource group:"
+                  az functionapp list --resource-group $(resourceGroupName) --query "[].name" -o table
+                  exit 1
+                fi
 
 - stage: PostDeploymentValidation
   displayName: 'Post-Deployment Validation'
   dependsOn: BuildAndDeployFunction
   condition: succeeded()
-  variables:
-    functionAppName: $[ stageDependencies.DeployInfrastructure.DeployTerraform.outputs['terraformApply.functionAppName'] ]
   
   jobs:
   - job: ValidateDeployment
@@ -247,7 +265,9 @@ stages:
         scriptLocation: 'inlineScript'
         inlineScript: |
           # Get function app URL
-          FUNCTION_URL=$(az functionapp show --name $(functionAppName) --resource-group $(resourceGroupName) --query "defaultHostName" -o tsv)
+          FUNCTION_URL=$(az functionapp show --name $(functionAppName) --resource-group $(resourceGroupName) --query "properties.defaultHostName" -o tsv)
+          
+          echo "Function App URL: $FUNCTION_URL"
           
           # Test the function endpoint
           echo "Testing function at: https://$FUNCTION_URL/api/httpexample"

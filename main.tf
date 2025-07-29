@@ -1,15 +1,10 @@
 # This Terraform configuration creates a Flex Consumption plan app in Azure Functions 
 # with the required Storage account and Blob Storage deployment container.
 
-# Create a random pet to generate a unique resource group name
-resource "random_pet" "rg_name" {
-  prefix = var.resource_group_name_prefix
-}
-
 # Create a resource group
 resource "azurerm_resource_group" "example" {
   location = var.resource_group_location
-  name     = var.resource_group_name != "" ? var.resource_group_name : random_pet.rg_name.id
+  name     = var.resource_group_name
 }
 
 # Random String for unique naming of resources
